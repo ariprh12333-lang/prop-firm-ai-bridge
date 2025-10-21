@@ -1,19 +1,26 @@
-from flask import Flask, jsonify, Response
+from flask import Flask, jsonify, Response, request
 import requests, datetime, time
 
 app = Flask(__name__)
 
 API_KEY = "d3rnlnhr01qopgh97glgd3rnlnhr01qopgh97gm0"
-PAIRS = {
-    "EURUSD": "OANDA:EUR_USD",
-    "GBPUSD": "OANDA:GBP_USD",
-    "USDJPY": "OANDA:USD_JPY",
-    "AUDUSD": "OANDA:AUD_USD",
-    "NZDUSD": "OANDA:NZD_USD",
-    "USDCHF": "OANDA:USD_CHF",
-    "USDCAD": "OANDA:USD_CAD"
-}
+EXCHANGE = "oanda"  # bisa diganti 'ic markets', 'fxcm', dll
 
+# Ambil daftar symbol forex dari Finnhub
+def get_symbols(exchange=EXCHANGE):
+    url = f"https://finnhub.io/api/v1/forex/symbol?exchange={exchange}&token={API_KEY}"
+    r = requests.get(url, timeout=10)
+    data = r.json()
+    symbols = []
+    for s in data:
+        if "USD" in s["displaySymbol"]:  # filter hanya pair dengan USD
+            symbols.append({
+                "name": s["displaySymbol"].replace("/", ""),
+                "symbol": s["symbol"]
+            })
+    return symbols[:7]  # tampilkan 7 pair teratas (EURUSD, GBPUSD, dll)
+
+# Ambil harga terkini
 def get_price(symbol):
     try:
         url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token={API_KEY}"
@@ -23,10 +30,11 @@ def get_price(symbol):
     except:
         return 0.0
 
+# Ambil data candle 5 menit terakhir
 def get_chart_data(symbol):
     try:
         now = int(time.time())
-        from_ = now - 3600 * 6  # 6 jam terakhir
+        from_ = now - 3600 * 6
         url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution=5&from={from_}&to={now}&token={API_KEY}"
         r = requests.get(url, timeout=10)
         d = r.json()
@@ -48,11 +56,13 @@ def get_chart_data(symbol):
 
 @app.route("/chart")
 def chart():
+    symbols = get_symbols()
     data = {}
-    for name, api_symbol in PAIRS.items():
-        price = get_price(api_symbol)
-        chart = get_chart_data(api_symbol)
-        data[name] = {"price": price, "chart": chart}
+    for s in symbols:
+        data[s["name"]] = {
+            "price": get_price(s["symbol"]),
+            "chart": get_chart_data(s["symbol"])
+        }
     return jsonify({
         "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
         "pairs": data
@@ -65,7 +75,7 @@ def home():
     <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>Prop Firm AI Bridge (Finnhub FX Stable)</title>
+      <title>Prop Firm AI Bridge (Auto Forex FX)</title>
       <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
       <style>
@@ -81,7 +91,7 @@ def home():
       </style>
     </head>
     <body>
-      <h1>✅ Prop Firm AI Bridge (Finnhub FX Stable)</h1>
+      <h1>✅ Prop Firm AI Bridge (Auto Forex FX)</h1>
       <div id="time">Loading...</div>
       <table id="prices">
         <thead><tr><th>Pair</th><th>Price</th></tr></thead>
@@ -90,7 +100,7 @@ def home():
       <div id="charts"></div>
 
       <script>
-        const PAIRS=["EURUSD","GBPUSD","USDJPY","AUDUSD","NZDUSD","USDCHF","USDCAD"];
+        let PAIRS=[];
         const COLORS=["#00ff9d","#ffcc00","#ff3d71","#00bfff","#00ffaa","#ff8c00","#bbbbff"];
         const charts={};
 
@@ -111,8 +121,6 @@ def home():
           });
         }
 
-        PAIRS.forEach((p,i)=>charts[p]=createChart(p,COLORS[i]));
-
         async function load(){
           try{
             const r=await fetch('/chart');
@@ -120,13 +128,16 @@ def home():
             document.getElementById('time').textContent='Last update: '+d.timestamp;
             const tbody=document.querySelector('#prices tbody');
             tbody.innerHTML='';
-            PAIRS.forEach(p=>{
+            PAIRS=Object.keys(d.pairs);
+            document.getElementById("charts").innerHTML='';
+            PAIRS.forEach((p,i)=>{
               const data=d.pairs[p];
               if(!data)return;
               const price=data.price||'N/A';
               const tr=document.createElement('tr');
               tr.innerHTML=`<td>${p}</td><td style="color:#00ff9d;font-weight:bold">${price}</td>`;
               tbody.appendChild(tr);
+              charts[p]=createChart(p,COLORS[i%COLORS.length]);
               const ohlc=data.chart;
               if(ohlc&&ohlc.length){
                 charts[p].data.datasets[0].data=ohlc.map(v=>({
@@ -136,7 +147,7 @@ def home():
               }
             });
           }catch(e){
-            document.getElementById('time').textContent='Error fetching data';
+            document.getElementById('time').textContent='Error loading data';
           }
         }
 
