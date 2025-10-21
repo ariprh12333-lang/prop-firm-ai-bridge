@@ -1,60 +1,60 @@
 from flask import Flask, jsonify, Response
-import requests, datetime
+import requests, datetime, time
 
 app = Flask(__name__)
 
-API_KEY = "5d43621b934243dbbfdd5bbbf1a8bf0b"
-PAIRS = [
-    "EUR/USD","GBP/USD","USD/JPY","AUD/USD",
-    "NZD/USD","USD/CHF","USD/CAD"
-]
+API_KEY = "d3rnlnhr01qopgh97glgd3rnlnhr01qopgh97gm0"  # ✅ Finnhub key kamu
+PAIRS = {
+    "EURUSD": "OANDA:EUR_USD",
+    "GBPUSD": "OANDA:GBP_USD",
+    "USDJPY": "OANDA:USD_JPY",
+    "AUDUSD": "OANDA:AUD_USD",
+    "NZDUSD": "OANDA:NZD_USD",
+    "USDCHF": "OANDA:USD_CHF",
+    "USDCAD": "OANDA:USD_CAD"
+}
 
 def get_price(symbol):
-    """Ambil harga terakhir untuk pair"""
-    url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={API_KEY}"
-    r = requests.get(url, timeout=10)
-    data = r.json()
-    return data.get("price", "N/A")
-
-def get_chart_data(symbol):
-    """Ambil data candlestick 1-menit"""
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=50&apikey={API_KEY}"
+    url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token={API_KEY}"
     try:
         r = requests.get(url, timeout=10)
-        data = r.json()
-        if "values" not in data:
-            print(f"[ERROR] {symbol} invalid: {data}")
-            return []
-        values = data["values"][::-1]
-        ohlc = [
-            {"x": v["datetime"],
-             "o": float(v["open"]),
-             "h": float(v["high"]),
-             "l": float(v["low"]),
-             "c": float(v["close"])}
-            for v in values
-        ]
-        return ohlc
-    except Exception as e:
-        print(f"[ERROR] {symbol}: {e}")
+        d = r.json()
+        return round(float(d.get("c", 0)), 5)
+    except:
+        return 0
+
+def get_chart_data(symbol):
+    now = int(time.time())
+    from_ = now - 3600  # 1 jam terakhir
+    url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution=1&from={from_}&to={now}&token={API_KEY}"
+    r = requests.get(url, timeout=10)
+    d = r.json()
+    if "t" not in d:
         return []
+    ohlc = []
+    for i in range(len(d["t"])):
+        ts = datetime.datetime.utcfromtimestamp(d["t"][i]).strftime("%H:%M")
+        ohlc.append({
+            "x": ts,
+            "o": d["o"][i],
+            "h": d["h"][i],
+            "l": d["l"][i],
+            "c": d["c"][i]
+        })
+    return ohlc
 
 @app.route("/chart")
 def chart():
-    try:
-        fx = {}
-        for p in PAIRS:
-            symbol = p.replace("/","")
-            fx[symbol] = {
-                "chart": get_chart_data(p),
-                "price": get_price(p)
-            }
-        return jsonify({
-            "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
-            "pairs": fx
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)})
+    fx = {}
+    for name, api_symbol in PAIRS.items():
+        fx[name] = {
+            "price": get_price(api_symbol),
+            "chart": get_chart_data(api_symbol)
+        }
+    return jsonify({
+        "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "pairs": fx
+    })
 
 @app.route("/")
 def home():
@@ -63,7 +63,7 @@ def home():
     <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>Prop Firm AI Bridge - Live Forex Dashboard</title>
+      <title>Prop Firm AI Bridge (Finnhub FX)</title>
       <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
       <style>
@@ -79,7 +79,7 @@ def home():
       </style>
     </head>
     <body>
-      <h1>✅ Prop Firm AI Bridge (Live Candlestick FX)</h1>
+      <h1>✅ Prop Firm AI Bridge (Live Finnhub FX)</h1>
       <div id="time">Loading...</div>
       <table id="prices">
         <thead><tr><th>Pair</th><th>Price</th></tr></thead>
@@ -103,10 +103,7 @@ def home():
             data:{datasets:[{label:pair,borderColor:color,data:[]}]},
             options:{
               plugins:{legend:{display:false}},
-              scales:{
-                x:{display:false},
-                y:{display:true,ticks:{color:'#999'}}
-              },
+              scales:{x:{display:false},y:{display:true,ticks:{color:'#999'}}},
               animation:false
             }
           });
@@ -139,7 +136,7 @@ def home():
               }
             });
           }catch(e){
-            document.getElementById('time').textContent='Error fetching data';
+            document.getElementById('time').textContent='Error loading data';
           }
         }
 
