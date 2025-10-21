@@ -3,32 +3,43 @@ import requests
 
 app = Flask(__name__)
 
-# API Twelve Data (gunakan key kamu)
+# Ganti dengan API key kamu
 API_KEY = "5d43621b934243dbbfdd5bbbf1a8bf0b"
-PAIRS = ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","NZD/USD","USD/CHF","USD/CAD"]
+
+# Pair forex utama
+PAIRS = [
+    "EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD",
+    "NZD/USD", "USD/CHF", "USD/CAD"
+]
 
 def get_chart_data(symbol):
-    """Ambil data candlestick 1-menit (OHLC) dari TwelveData"""
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1min&outputsize=30&apikey={API_KEY}"
-    r = requests.get(url, timeout=10)
-    data = r.json()
-    if "values" not in data:
-        return None
-    # urutkan agar dari lama ke baru
-    values = data["values"][::-1]
-    return [
-        {"t": v["datetime"],
-         "o": float(v["open"]),
-         "h": float(v["high"]),
-         "l": float(v["low"]),
-         "c": float(v["close"])}
-        for v in values
-    ]
+    try:
+        r = requests.get(url, timeout=10)
+        data = r.json()
+        if "values" not in data:
+            print(f"[ERROR] Data invalid for {symbol}: {data}")
+            return []
+        values = data["values"][::-1]  # urutkan agar dari lama ke baru
+        ohlc = [
+            {
+                "x": v["datetime"],
+                "o": float(v["open"]),
+                "h": float(v["high"]),
+                "l": float(v["low"]),
+                "c": float(v["close"])
+            }
+            for v in values
+        ]
+        return ohlc
+    except Exception as e:
+        print(f"[ERROR] Failed {symbol}: {e}")
+        return []
 
 @app.route("/chart")
 def chart():
     try:
-        fx = {p.replace("/",""): get_chart_data(p) for p in PAIRS}
+        fx = {p.replace("/", ""): get_chart_data(p) for p in PAIRS}
         return jsonify(fx)
     except Exception as e:
         return jsonify({"error": str(e)})
@@ -44,20 +55,20 @@ def home():
       <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
       <style>
-        body{font-family:system-ui,-apple-system,Roboto,Arial;background:#0d0d0d;color:#eee;margin:0;padding:20px}
+        body{font-family:system-ui,Arial;background:#000;color:#eee;margin:0;padding:20px}
         h1{text-align:center;color:#00ff9d;margin-bottom:10px}
         #time{text-align:center;color:#ccc;font-size:13px;margin-bottom:10px}
-        .chart-container{max-width:640px;margin:25px auto;background:#1a1a1a;
+        .chart-container{max-width:640px;margin:25px auto;background:#111;
           padding:15px;border-radius:10px;box-shadow:0 0 6px #000}
         canvas{width:100%;height:320px;}
+        .error{color:#ff4d4d;text-align:center;margin-top:10px}
       </style>
     </head>
     <body>
       <h1>✅ Prop Firm AI Bridge (Live Candlestick FX)</h1>
       <div id="time">Loading...</div>
       <div id="charts"></div>
-      <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-      <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
+      <div id="err" class="error"></div>
       <script>
         const PAIRS=["EURUSD","GBPUSD","USDJPY","AUDUSD","NZDUSD","USDCHF","USDCAD"];
         const COLORS=["#00ff9d","#ffcc00","#ff3d71","#00bfff","#00ffaa","#ff8c00","#bbbbff"];
@@ -88,19 +99,28 @@ def home():
             const d=await r.json();
             const now=new Date().toLocaleTimeString();
             document.getElementById('time').textContent='Last update: '+now;
+            let anyValid=false;
             PAIRS.forEach(p=>{
               const data=d[p];
-              if(!data)return;
-              charts[p].data.datasets[0].data=data;
+              if(!data||!data.length)return;
+              charts[p].data.datasets[0].data=data.map(v=>({
+                x:v.x,o:v.o,h:v.h,l:v.l,c:v.c
+              }));
               charts[p].update();
+              anyValid=true;
             });
+            if(!anyValid){
+              document.getElementById('err').textContent="⚠️ No valid data (check API key or symbol format)";
+            }else{
+              document.getElementById('err').textContent="";
+            }
           }catch(e){
-            document.getElementById('time').textContent='Error loading data';
+            document.getElementById('err').textContent='❌ Error: '+e;
           }
         }
 
         load();
-        setInterval(load,60000); // refresh tiap 1 menit
+        setInterval(load,60000);
       </script>
     </body>
     </html>
