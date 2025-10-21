@@ -3,7 +3,7 @@ import requests, datetime, time
 
 app = Flask(__name__)
 
-API_KEY = "d3rnlnhr01qopgh97glgd3rnlnhr01qopgh97gm0"  # ✅ Finnhub key kamu
+API_KEY = "d3rnlnhr01qopgh97glgd3rnlnhr01qopgh97gm0"
 PAIRS = {
     "EURUSD": "OANDA:EUR_USD",
     "GBPUSD": "OANDA:GBP_USD",
@@ -15,45 +15,47 @@ PAIRS = {
 }
 
 def get_price(symbol):
-    url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token={API_KEY}"
     try:
+        url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token={API_KEY}"
         r = requests.get(url, timeout=10)
         d = r.json()
         return round(float(d.get("c", 0)), 5)
     except:
-        return 0
+        return 0.0
 
 def get_chart_data(symbol):
-    now = int(time.time())
-    from_ = now - 3600  # 1 jam terakhir
-    url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution=1&from={from_}&to={now}&token={API_KEY}"
-    r = requests.get(url, timeout=10)
-    d = r.json()
-    if "t" not in d:
+    try:
+        now = int(time.time())
+        from_ = now - 3600 * 6  # 6 jam terakhir
+        url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution=5&from={from_}&to={now}&token={API_KEY}"
+        r = requests.get(url, timeout=10)
+        d = r.json()
+        if "t" not in d or not d["t"]:
+            return []
+        candles = []
+        for i in range(len(d["t"])):
+            ts = datetime.datetime.utcfromtimestamp(d["t"][i]).strftime("%H:%M")
+            candles.append({
+                "x": ts,
+                "o": d["o"][i],
+                "h": d["h"][i],
+                "l": d["l"][i],
+                "c": d["c"][i]
+            })
+        return candles
+    except:
         return []
-    ohlc = []
-    for i in range(len(d["t"])):
-        ts = datetime.datetime.utcfromtimestamp(d["t"][i]).strftime("%H:%M")
-        ohlc.append({
-            "x": ts,
-            "o": d["o"][i],
-            "h": d["h"][i],
-            "l": d["l"][i],
-            "c": d["c"][i]
-        })
-    return ohlc
 
 @app.route("/chart")
 def chart():
-    fx = {}
+    data = {}
     for name, api_symbol in PAIRS.items():
-        fx[name] = {
-            "price": get_price(api_symbol),
-            "chart": get_chart_data(api_symbol)
-        }
+        price = get_price(api_symbol)
+        chart = get_chart_data(api_symbol)
+        data[name] = {"price": price, "chart": chart}
     return jsonify({
         "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
-        "pairs": fx
+        "pairs": data
     })
 
 @app.route("/")
@@ -63,7 +65,7 @@ def home():
     <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>Prop Firm AI Bridge (Finnhub FX)</title>
+      <title>Prop Firm AI Bridge (Finnhub FX Stable)</title>
       <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial"></script>
       <style>
@@ -79,7 +81,7 @@ def home():
       </style>
     </head>
     <body>
-      <h1>✅ Prop Firm AI Bridge (Live Finnhub FX)</h1>
+      <h1>✅ Prop Firm AI Bridge (Finnhub FX Stable)</h1>
       <div id="time">Loading...</div>
       <table id="prices">
         <thead><tr><th>Pair</th><th>Price</th></tr></thead>
@@ -116,7 +118,6 @@ def home():
             const r=await fetch('/chart');
             const d=await r.json();
             document.getElementById('time').textContent='Last update: '+d.timestamp;
-
             const tbody=document.querySelector('#prices tbody');
             tbody.innerHTML='';
             PAIRS.forEach(p=>{
@@ -126,7 +127,6 @@ def home():
               const tr=document.createElement('tr');
               tr.innerHTML=`<td>${p}</td><td style="color:#00ff9d;font-weight:bold">${price}</td>`;
               tbody.appendChild(tr);
-
               const ohlc=data.chart;
               if(ohlc&&ohlc.length){
                 charts[p].data.datasets[0].data=ohlc.map(v=>({
@@ -136,7 +136,7 @@ def home():
               }
             });
           }catch(e){
-            document.getElementById('time').textContent='Error loading data';
+            document.getElementById('time').textContent='Error fetching data';
           }
         }
 
