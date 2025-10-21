@@ -5,57 +5,57 @@ app = Flask(__name__)
 
 API_KEY = "d3rnlnhr01qopgh97glgd3rnlnhr01qopgh97gm0"
 
-# Pair forex utama (fix)
 PAIRS = {
-    "EURUSD": "OANDA:EUR_USD",
-    "GBPUSD": "OANDA:GBP_USD",
-    "USDJPY": "OANDA:USD_JPY",
-    "AUDUSD": "OANDA:AUD_USD",
-    "NZDUSD": "OANDA:NZD_USD",
-    "USDCHF": "OANDA:USD_CHF",
-    "USDCAD": "OANDA:USD_CAD"
+    "EURUSD": ["OANDA:EUR_USD", "FX:EURUSD"],
+    "GBPUSD": ["OANDA:GBP_USD", "FX:GBPUSD"],
+    "USDJPY": ["OANDA:USD_JPY", "FX:USDJPY"],
+    "AUDUSD": ["OANDA:AUD_USD", "FX:AUDUSD"],
+    "NZDUSD": ["OANDA:NZD_USD", "FX:NZDUSD"],
+    "USDCHF": ["OANDA:USD_CHF", "FX:USDCHF"],
+    "USDCAD": ["OANDA:USD_CAD", "FX:USDCAD"]
 }
 
-def get_price(symbol):
-    """Ambil harga terakhir dari Finnhub"""
+def fetch_json(url):
     try:
-        url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token={API_KEY}"
         r = requests.get(url, timeout=10)
-        d = r.json()
-        return round(float(d.get("c", 0)), 5)
-    except Exception:
-        return 0.0
+        return r.json()
+    except:
+        return {}
 
-def get_chart_data(symbol):
-    """Ambil 5-menit candlestick terakhir"""
-    try:
-        now = int(time.time())
-        from_ = now - 3600 * 6  # 6 jam terakhir
-        url = f"https://finnhub.io/api/v1/forex/candle?symbol={symbol}&resolution=5&from={from_}&to={now}&token={API_KEY}"
-        r = requests.get(url, timeout=10)
-        d = r.json()
-        if "t" not in d or not d["t"]:
-            return []
-        candles = []
-        for i in range(len(d["t"])):
-            ts = datetime.datetime.utcfromtimestamp(d["t"][i]).strftime("%H:%M")
-            candles.append({
-                "x": ts,
-                "o": d["o"][i],
-                "h": d["h"][i],
-                "l": d["l"][i],
-                "c": d["c"][i]
-            })
-        return candles
-    except Exception:
-        return []
+def get_price(symbols):
+    for s in symbols:
+        url = f"https://finnhub.io/api/v1/quote?symbol={s}&token={API_KEY}"
+        d = fetch_json(url)
+        if "c" in d and d["c"] != 0:
+            return round(float(d["c"]), 5)
+    return 0.0
+
+def get_chart_data(symbols):
+    now = int(time.time())
+    from_ = now - 3600 * 6  # 6 jam terakhir
+    for s in symbols:
+        url = f"https://finnhub.io/api/v1/forex/candle?symbol={s}&resolution=5&from={from_}&to={now}&token={API_KEY}"
+        d = fetch_json(url)
+        if "t" in d and d["t"]:
+            candles = []
+            for i in range(len(d["t"])):
+                ts = datetime.datetime.utcfromtimestamp(d["t"][i]).strftime("%H:%M")
+                candles.append({
+                    "x": ts,
+                    "o": d["o"][i],
+                    "h": d["h"][i],
+                    "l": d["l"][i],
+                    "c": d["c"][i]
+                })
+            return candles
+    return []
 
 @app.route("/chart")
 def chart():
     data = {}
-    for name, api_symbol in PAIRS.items():
-        price = get_price(api_symbol)
-        chart = get_chart_data(api_symbol)
+    for name, symbols in PAIRS.items():
+        price = get_price(symbols)
+        chart = get_chart_data(symbols)
         data[name] = {"price": price, "chart": chart}
     return jsonify({
         "timestamp": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
